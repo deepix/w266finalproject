@@ -1,4 +1,4 @@
-## Detecting Fake News by Natural Language Processing
+## Detecting Fake News with Natural Language Processing
 
 ##### Final Project for MIDS W266: Natural Language Processing with Deep Learning
 
