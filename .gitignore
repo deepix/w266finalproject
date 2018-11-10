@@ -1,5 +1,7 @@
 venv/
+__pycache__
 .ipynb_checkpoints
 glove.*.txt
 *w2v*
+.idea
 
