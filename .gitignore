@@ -6,3 +6,7 @@ glove.*.txt
 .idea
 .ds_store
 .DS_Store
+*pretrained_lstm*
+*.tar.gz*
+*tensorboard*
+*checkpoint*
