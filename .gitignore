@@ -4,4 +4,8 @@ __pycache__
 glove.*.txt
 *w2v*
 .idea
+*pretrained_lstm*
+*.tar.gz*
+*tensorboard*
+
 
