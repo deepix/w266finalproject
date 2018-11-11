@@ -4,4 +4,4 @@ __pycache__
 glove.*.txt
 *w2v*
 .idea
-
+.ds_store
