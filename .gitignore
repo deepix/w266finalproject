@@ -5,3 +5,4 @@ glove.*.txt
 *w2v*
 .idea
 .ds_store
+.DS_Store
