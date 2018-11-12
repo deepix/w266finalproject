@@ -4,9 +4,9 @@ __pycache__
 glove.*.txt
 *w2v*
 .idea
+.ds_store
+.DS_Store
 *pretrained_lstm*
 *.tar.gz*
 *tensorboard*
 *checkpoint*
-
-
