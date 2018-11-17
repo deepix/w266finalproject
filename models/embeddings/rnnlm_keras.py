@@ -14,7 +14,6 @@ from gensim.models.keyedvectors import KeyedVectors
 from pathlib import Path
 
 # HYPERPARAMETERS BEGIN ###############################################
-RANDOM_SEED = 42
 MAX_ARTICLE_LENGTH = 1000
 EMBEDDING_VECTOR_LENGTH = 50
 EMBEDDING_VOCAB_SIZE = 400000
@@ -22,12 +21,14 @@ LSTM_MEMORY_SIZE = 100
 NN_OPTIMIZER = 'adam'
 NN_LOSS_FUNCTION = 'binary_crossentropy'
 NN_EPOCHS = 3
+USE_GLOVE_EMBEDDINGS = False
 NN_BATCH_SIZE = 128
 # HYPERPARAMETERS END #################################################
 
 # Other config parameters
-GLOVE_FILEPATH = 'glove.6B.50d.txt'
-DATASET_PATH = "../../data/fakerealnews_GeorgeMcIntire/fake_or_real_news.csv"
+RANDOM_SEED = 42
+GLOVE_FILEPATH = 'glove.6B.%dd.txt' % EMBEDDING_VECTOR_LENGTH
+FR_DATASET_PATH = "../../data/fakerealnews_GeorgeMcIntire/fake_or_real_news.csv"
 ID_UNKNOWN = 399999
 
 
@@ -37,7 +38,7 @@ def cleanArticle(string):
     return re.sub(strip_special_chars, "", string.lower())
 
 
-def load_glove_model_v2(dim=50):
+def load_glove_model_v2(dim):
     """Load a Glove model into a gensim model, converting it
     into word2vec if necessary.
     Adapted from: https://stackoverflow.com/a/47465278
@@ -48,9 +49,16 @@ def load_glove_model_v2(dim=50):
 
     if not Path(word2vec_output_file).exists():
         glove2word2vec(glove_input_file=glove_data_file, word2vec_output_file=word2vec_output_file)
-    glove_model = KeyedVectors.load_word2vec_format(word2vec_output_file, binary=False)
+    model = KeyedVectors.load_word2vec_format(word2vec_output_file, binary=False)
     print("Loaded Glove embedding")
-    return glove_model
+
+    embedding_matrix = np.zeros((len(model.vocab), dim))
+    for i in range(len(model.vocab)):
+        embedding_vector = model[model.index2word[i]]
+        if embedding_vector is not None:
+            embedding_matrix[i] = embedding_vector
+
+    return model, embedding_matrix
 
 
 def article_to_word_id_list(article, model):
@@ -68,28 +76,26 @@ def article_to_word_id_list(article, model):
 # Please add a function like this to read any other dataset
 def read_mcintire_dataset():
     print("Reading dataset")
-    fr = pd.read_csv(DATASET_PATH)
+    fr = pd.read_csv(FR_DATASET_PATH)
     print("Read dataset")
-    fr = fr.sample(frac=1, random_state=42).reset_index(drop=True)
+    fr = fr.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
 
     fr['title_and_text'] = fr['title'] + ' ' + fr['text']
-    fr['title_and_text_cleaned'] = fr['title_and_text'].apply(cleanArticle)
-
-    model = load_glove_model_v2(EMBEDDING_VECTOR_LENGTH)
-
-    fr['news_embed_idx'] = fr['title_and_text_cleaned'].apply(lambda x: article_to_word_id_list(x, model))
+    model, embedding_matrix = load_glove_model_v2(EMBEDDING_VECTOR_LENGTH)
+    fr['title_and_text_cleaned'] = fr['title_and_text'].apply(lambda a: cleanArticle(a))
+    fr['news_embed_idx'] = fr['title_and_text_cleaned'].apply(lambda a: article_to_word_id_list(a, model))
 
     X_train, X_test, y_train, y_test = \
         train_test_split(fr['news_embed_idx'], np.where(fr['label'] == 'FAKE', 1, 0),
                          test_size=.2, random_state=RANDOM_SEED)
 
-    return X_train, X_test, y_train, y_test
+    return X_train, X_test, y_train, y_test, embedding_matrix
 
 
 if __name__ == '__main__':
     np.random.seed(RANDOM_SEED)
 
-    X_train, X_test, y_train, y_test = read_mcintire_dataset()
+    X_train, X_test, y_train, y_test, embedding_matrix = read_mcintire_dataset()
 
     # Add padding if needed
     X_train = sequence.pad_sequences(X_train, maxlen=MAX_ARTICLE_LENGTH)
@@ -97,7 +103,13 @@ if __name__ == '__main__':
 
     # Define model
     model = Sequential()
-    model.add(Embedding(EMBEDDING_VOCAB_SIZE, EMBEDDING_VECTOR_LENGTH, input_length=MAX_ARTICLE_LENGTH))
+    if USE_GLOVE_EMBEDDINGS:
+        model.add(Embedding(EMBEDDING_VOCAB_SIZE, EMBEDDING_VECTOR_LENGTH, weights=[embedding_matrix],
+                            input_length=MAX_ARTICLE_LENGTH, trainable=False))
+    else:
+        model.add(Embedding(EMBEDDING_VOCAB_SIZE, EMBEDDING_VECTOR_LENGTH, input_length=MAX_ARTICLE_LENGTH))
+
+    # Question: How to decide what initializers to use?
     model.add(LSTM(LSTM_MEMORY_SIZE))
     model.add(Dense(1, activation='sigmoid'))
     model.compile(loss=NN_LOSS_FUNCTION, optimizer=NN_OPTIMIZER, metrics=['accuracy'])
