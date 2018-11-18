@@ -162,7 +162,7 @@ if __name__ == '__main__':
         model.add(Embedding(EMBEDDING_VOCAB_SIZE, EMBEDDING_VECTOR_LENGTH, input_length=MAX_ARTICLE_LENGTH))
 
     # Question: How to decide what initializers to use?
-    # Added multiple layers
+    # Added multiple layers. Comment out the first two model.add lines to convert back to single layer.
     model.add(LSTM(LSTM_MEMORY_SIZE, return_sequences=True, input_shape=(MAX_ARTICLE_LENGTH, EMBEDDING_VECTOR_LENGTH)))
     model.add(LSTM(LSTM_MEMORY_SIZE, return_sequences=True))
     model.add(LSTM(LSTM_MEMORY_SIZE))
