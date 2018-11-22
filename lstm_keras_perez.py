@@ -8,8 +8,10 @@ from sklearn.metrics import confusion_matrix
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
+from keras.layers import GRU
 from keras.layers.embeddings import Embedding
 from keras.preprocessing import sequence
+from keras import optimizers
 
 from gensim.scripts.glove2word2vec import glove2word2vec
 from gensim.models.keyedvectors import KeyedVectors
@@ -20,11 +22,12 @@ MAX_ARTICLE_LENGTH = 500
 EMBEDDING_VECTOR_LENGTH = 50
 EMBEDDING_VOCAB_SIZE = 400000
 LSTM_MEMORY_SIZE = 100
-NN_OPTIMIZER = 'adam'
+NN_OPTIMIZER = optimizers.Adam(lr=0.0001)
 NN_LOSS_FUNCTION = 'binary_crossentropy'
-NN_EPOCHS = 7
-USE_GLOVE_EMBEDDINGS = True
-NN_BATCH_SIZE = 128
+NN_EPOCHS = 40
+USE_GLOVE_EMBEDDINGS = False
+NN_BATCH_SIZE = 50
+DROPOUT_RATE = 0.5
 # HYPERPARAMETERS END #################################################
 
 # Other config parameters
@@ -145,9 +148,13 @@ if __name__ == '__main__':
     
     np.random.seed(RANDOM_SEED)
 
+    ############# (1) Choose dataset to run model on ###########################
+    
     #X_train, X_test, y_train, y_test, embedding_matrix = read_perez_dataset('fakeNewsDataset')
     X_train, X_test, y_train, y_test, embedding_matrix = read_perez_dataset('celebrityDataset')
     # X_train, X_test, y_train, y_test, embedding_matrix = read_mcintire_dataset()
+    
+    ################################# END ########################################
     
     # Add padding if needed
     X_train = sequence.pad_sequences(X_train, maxlen=MAX_ARTICLE_LENGTH)
@@ -161,11 +168,18 @@ if __name__ == '__main__':
     else:
         model.add(Embedding(EMBEDDING_VOCAB_SIZE, EMBEDDING_VECTOR_LENGTH, input_length=MAX_ARTICLE_LENGTH))
 
-    # Question: How to decide what initializers to use?
-    # Added multiple layers. Comment out the first two model.add lines to convert back to single layer.
-    model.add(LSTM(LSTM_MEMORY_SIZE, return_sequences=True, input_shape=(MAX_ARTICLE_LENGTH, EMBEDDING_VECTOR_LENGTH)))
-    model.add(LSTM(LSTM_MEMORY_SIZE, return_sequences=True))
-    model.add(LSTM(LSTM_MEMORY_SIZE))
+    #################### (2) Choose number of layers. ##########################
+    ########## Make 3 layers by adding the next two model.add lines #########
+    
+#     model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True, input_shape=(MAX_ARTICLE_LENGTH, EMBEDDING_VECTOR_LENGTH)))
+#     model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True)
+
+    ################ (3) Choose RNN model type (e.g. LSTM, GRU, ...) ############
+    
+    model.add(GRU(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE))
+    
+    #################################### END #####################################
+    
     model.add(Dense(1, activation='sigmoid'))
     model.compile(loss=NN_LOSS_FUNCTION, optimizer=NN_OPTIMIZER, metrics=['accuracy'])
     print(model.summary())
