@@ -2,6 +2,7 @@ import re
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
+from mlflow import log_metric, log_param
 
 from keras.models import Sequential
 from keras.layers import Dense
@@ -20,7 +21,7 @@ EMBEDDING_VOCAB_SIZE = 400000
 LSTM_MEMORY_SIZE = 100
 NN_OPTIMIZER = 'adam'
 NN_LOSS_FUNCTION = 'binary_crossentropy'
-NN_EPOCHS = 3
+NN_EPOCHS = 1
 USE_GLOVE_EMBEDDINGS = False
 NN_BATCH_SIZE = 128
 # HYPERPARAMETERS END #################################################
@@ -115,9 +116,22 @@ if __name__ == '__main__':
     model.compile(loss=NN_LOSS_FUNCTION, optimizer=NN_OPTIMIZER, metrics=['accuracy'])
     print(model.summary())
 
+    # Log parameters
+    log_param("MAX_ARTICLE_LENGTH", MAX_ARTICLE_LENGTH)
+    log_param("USE_GLOVE_EMBEDDINGS", USE_GLOVE_EMBEDDINGS)
+    log_param("EMBEDDING_VOCAB_SIZE", EMBEDDING_VOCAB_SIZE)
+    log_param("EMBEDDING_VECTOR_LENGTH", EMBEDDING_VECTOR_LENGTH)
+    log_param("LSTM_MEMORY_SIZE", LSTM_MEMORY_SIZE)
+    log_param("NN_LOSS_FUNCTION", NN_LOSS_FUNCTION)
+    log_param("NN_OPTIMIZER", NN_OPTIMIZER)
+    log_param("NN_EPOCHS", NN_EPOCHS)
+    log_param("NN_BATCH_SIZE", NN_BATCH_SIZE)
+
     # Train model
     model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=NN_EPOCHS, batch_size=NN_BATCH_SIZE)
 
     # Predict model
     scores = model.evaluate(X_test, y_test, verbose=1)
-    print("Accuracy: %.2f%%" % (scores[1]*100))
+    accuracy = scores[1] * 100.0
+    log_metric("Accuracy", accuracy)
+    print("Accuracy: %.2f%%" % accuracy)
