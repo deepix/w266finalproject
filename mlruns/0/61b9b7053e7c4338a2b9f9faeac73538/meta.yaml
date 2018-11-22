@@ -1,0 +1,14 @@
+artifact_uri: /Users/deepakna/mids/w266finalproject/mlruns/0/61b9b7053e7c4338a2b9f9faeac73538/artifacts
+end_time: 1542872022320
+entry_point_name: ''
+experiment_id: 0
+lifecycle_stage: deleted
+name: ''
+run_uuid: 61b9b7053e7c4338a2b9f9faeac73538
+source_name: lstm_keras_perez.py
+source_type: 4
+source_version: f4d0e219ae6f781deb1ea0a7b4a1ca4d0f2d9593
+start_time: 1542872022312
+status: 3
+tags: []
+user_id: deepakna
