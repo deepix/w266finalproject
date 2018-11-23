@@ -4,6 +4,7 @@ import numpy as np
 import os
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
+from mlflow import log_metric, log_param
 
 from keras.models import Sequential
 from keras.layers import Dense
@@ -18,21 +19,23 @@ from gensim.models.keyedvectors import KeyedVectors
 from pathlib import Path
 
 # HYPERPARAMETERS BEGIN ###############################################
-MAX_ARTICLE_LENGTH = 500
-EMBEDDING_VECTOR_LENGTH = 50
-EMBEDDING_VOCAB_SIZE = 400000
-LSTM_MEMORY_SIZE = 100
-NN_OPTIMIZER = optimizers.Adam(lr=0.0001)
-NN_LOSS_FUNCTION = 'binary_crossentropy'
-NN_EPOCHS = 40
-USE_GLOVE_EMBEDDINGS = False
-NN_BATCH_SIZE = 50
-DROPOUT_RATE = 0.5
+# These are set upon call to do_run()
+MAX_ARTICLE_LENGTH = None
+EMBEDDING_VECTOR_LENGTH = None
+EMBEDDING_VOCAB_SIZE = None
+LSTM_MEMORY_SIZE = None
+NN_OPTIMIZER = None
+NN_LOSS_FUNCTION = None
+NN_EPOCHS = None
+USE_GLOVE_EMBEDDINGS = None
+NN_BATCH_SIZE = None
+DATASET = None
+DROPOUT_RATE = None
+NN_ARCH_TYPE = None
 # HYPERPARAMETERS END #################################################
 
 # Other config parameters
 RANDOM_SEED = 42
-GLOVE_FILEPATH = 'models/embeddings/glove.6B.%dd.txt' % EMBEDDING_VECTOR_LENGTH
 FR_DATASET_PATH = "data/fakerealnews_GeorgeMcIntire/fake_or_real_news.csv"
 PEREZ_DATASET_PATH = "data/fakeNewsDatasets_Perez-Rosas2018"
 ID_UNKNOWN = 399999
@@ -49,6 +52,7 @@ def load_glove_model_v2(dim):
     into word2vec if necessary.
     Adapted from: https://stackoverflow.com/a/47465278
     """
+    GLOVE_FILEPATH = 'models/embeddings/glove.6B.%dd.txt' % EMBEDDING_VECTOR_LENGTH
     print("Loading Glove embedding")
     glove_data_file = GLOVE_FILEPATH
     word2vec_output_file = '%s.w2v' % glove_data_file
@@ -143,19 +147,28 @@ def read_perez_dataset(dataset_name):
     
     print("Finished reading dataset")
     return X_train, X_test, y_train, y_test, embedding_matrix
-    
-if __name__ == '__main__':
-    
+
+
+def set_model_hyperparameters(hyperparameter_dict):
+    for k, v in hyperparameter_dict.items():
+        globals()[k] = v
+        log_param(k, v)
+
+
+def do_run(hyperparameter_dict):
+
+    set_model_hyperparameters(hyperparameter_dict)
+
     np.random.seed(RANDOM_SEED)
 
     ############# (1) Choose dataset to run model on ###########################
-    
+
     #X_train, X_test, y_train, y_test, embedding_matrix = read_perez_dataset('fakeNewsDataset')
-    X_train, X_test, y_train, y_test, embedding_matrix = read_perez_dataset('celebrityDataset')
+    X_train, X_test, y_train, y_test, embedding_matrix = read_perez_dataset(DATASET)
     # X_train, X_test, y_train, y_test, embedding_matrix = read_mcintire_dataset()
     
     ################################# END ########################################
-    
+
     # Add padding if needed
     X_train = sequence.pad_sequences(X_train, maxlen=MAX_ARTICLE_LENGTH)
     X_test = sequence.pad_sequences(X_test, maxlen=MAX_ARTICLE_LENGTH)
@@ -169,17 +182,16 @@ if __name__ == '__main__':
         model.add(Embedding(EMBEDDING_VOCAB_SIZE, EMBEDDING_VECTOR_LENGTH, input_length=MAX_ARTICLE_LENGTH))
 
     #################### (2) Choose number of layers. ##########################
-    ########## Make 3 layers by adding the next two model.add lines #########
-    
-#     model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True, input_shape=(MAX_ARTICLE_LENGTH, EMBEDDING_VECTOR_LENGTH)))
-#     model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True)
 
-    ################ (3) Choose RNN model type (e.g. LSTM, GRU, ...) ############
-    
-    model.add(GRU(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE))
-    
-    #################################### END #####################################
-    
+    if NN_ARCH_TYPE == '3layerLSTM':
+         model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True, input_shape=(MAX_ARTICLE_LENGTH, EMBEDDING_VECTOR_LENGTH)))
+         model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True))
+         model.add(LSTM(LSTM_MEMORY_SIZE))
+    elif NN_ARCH_TYPE == '1layerGRU':
+        model.add(GRU(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE))
+    else:
+        assert False, "Unknown NN arch type"
+
     model.add(Dense(1, activation='sigmoid'))
     model.compile(loss=NN_LOSS_FUNCTION, optimizer=NN_OPTIMIZER, metrics=['accuracy'])
     print(model.summary())
@@ -189,9 +201,49 @@ if __name__ == '__main__':
     
     # Predict model
     scores = model.evaluate(X_test, y_test, verbose=1)
-    print("Accuracy: %.2f%%" % (scores[1]*100))
+    accuracy = scores[1] * 100
+    log_metric('accuracy', accuracy)
+    print("Accuracy: %.2f%%" % accuracy)
     
     # Confusion matrix of results (ensure it doesn't predict the same class for all records)
     y_pred = model.predict(X_test)
     y_pred = (y_pred > 0.5)
     print(confusion_matrix(y_test, y_pred))
+
+
+if __name__ == '__main__':
+    hyperparameter_dict_list = [
+        {
+            'MAX_ARTICLE_LENGTH': 500,
+            'EMBEDDING_VECTOR_LENGTH': 50,
+            'EMBEDDING_VOCAB_SIZE': 400000,
+            'LSTM_MEMORY_SIZE': 100,
+            'NN_OPTIMIZER': 'adam',
+            'NN_LOSS_FUNCTION': 'binary_crossentropy',
+            'NN_EPOCHS': 7,
+            'USE_GLOVE_EMBEDDINGS': True,
+            'NN_BATCH_SIZE': 128,
+            'DATASET': 'celebrityDataset',
+            'DROPOUT_RATE': 1.0,
+            'NN_ARCH_TYPE': '3layerLSTM',
+        },
+        {
+            'MAX_ARTICLE_LENGTH': 500,
+            'EMBEDDING_VECTOR_LENGTH': 50,
+            'EMBEDDING_VOCAB_SIZE': 400000,
+            'LSTM_MEMORY_SIZE': 100,
+            'NN_OPTIMIZER': optimizers.Adam(lr=0.0001),
+            'NN_LOSS_FUNCTION': 'binary_crossentropy',
+            'NN_EPOCHS': 40,
+            'USE_GLOVE_EMBEDDINGS': False,
+            'NN_BATCH_SIZE': 50,
+            'DATASET': 'celebrityDataset',
+            'DROPOUT_RATE': 0.5,
+            'NN_ARCH_TYPE': '1layerGRU',
+        },
+    ]
+
+    for hd in hyperparameter_dict_list:
+        do_run(hd)
+
+    # Other runs go below
