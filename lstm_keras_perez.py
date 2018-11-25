@@ -184,9 +184,11 @@ def do_run(hyperparameter_dict):
     #################### (2) Choose number of layers. ##########################
 
     if NN_ARCH_TYPE == '3layerLSTM':
-         model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True, input_shape=(MAX_ARTICLE_LENGTH, EMBEDDING_VECTOR_LENGTH)))
-         model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True))
-         model.add(LSTM(LSTM_MEMORY_SIZE))
+        model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True, input_shape=(MAX_ARTICLE_LENGTH, EMBEDDING_VECTOR_LENGTH)))
+        model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE, return_sequences=True))
+        model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE))
+    elif NN_ARCH_TYPE == '1layerLSTM':
+        model.add(LSTM(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE))
     elif NN_ARCH_TYPE == '1layerGRU':
         model.add(GRU(LSTM_MEMORY_SIZE, dropout=DROPOUT_RATE))
     else:
@@ -218,13 +220,27 @@ if __name__ == '__main__':
             'EMBEDDING_VECTOR_LENGTH': 50,
             'EMBEDDING_VOCAB_SIZE': 400000,
             'LSTM_MEMORY_SIZE': 100,
-            'NN_OPTIMIZER': 'adam',
+            'NN_OPTIMIZER': optimizers.Adam(lr=0.0005),
             'NN_LOSS_FUNCTION': 'binary_crossentropy',
-            'NN_EPOCHS': 7,
-            'USE_GLOVE_EMBEDDINGS': True,
-            'NN_BATCH_SIZE': 128,
+            'NN_EPOCHS': 2,
+            'USE_GLOVE_EMBEDDINGS': False,
+            'NN_BATCH_SIZE': 50,
             'DATASET': 'celebrityDataset',
-            'DROPOUT_RATE': 1.0,
+            'DROPOUT_RATE': 0.5,
+            'NN_ARCH_TYPE': '1layerLSTM',
+        },
+        {
+            'MAX_ARTICLE_LENGTH': 500,
+            'EMBEDDING_VECTOR_LENGTH': 50,
+            'EMBEDDING_VOCAB_SIZE': 400000,
+            'LSTM_MEMORY_SIZE': 100,
+            'NN_OPTIMIZER': optimizers.Adam(lr=0.0005),
+            'NN_LOSS_FUNCTION': 'binary_crossentropy',
+            'NN_EPOCHS': 2,
+            'USE_GLOVE_EMBEDDINGS': False,
+            'NN_BATCH_SIZE': 50,
+            'DATASET': 'celebrityDataset',
+            'DROPOUT_RATE': 0.5,
             'NN_ARCH_TYPE': '3layerLSTM',
         },
         {
@@ -232,9 +248,9 @@ if __name__ == '__main__':
             'EMBEDDING_VECTOR_LENGTH': 50,
             'EMBEDDING_VOCAB_SIZE': 400000,
             'LSTM_MEMORY_SIZE': 100,
-            'NN_OPTIMIZER': optimizers.Adam(lr=0.0001),
+            'NN_OPTIMIZER': optimizers.Adam(lr=0.0005),
             'NN_LOSS_FUNCTION': 'binary_crossentropy',
-            'NN_EPOCHS': 40,
+            'NN_EPOCHS': 2,
             'USE_GLOVE_EMBEDDINGS': False,
             'NN_BATCH_SIZE': 50,
             'DATASET': 'celebrityDataset',
