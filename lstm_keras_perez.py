@@ -96,9 +96,10 @@ def read_mcintire_dataset():
     X_train, X_test, y_train, y_test = \
         train_test_split(fr['news_embed_idx'], np.where(fr['label'] == 'FAKE', 1, 0),
                          test_size=.2, random_state=RANDOM_SEED)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.25, random_state=RANDOM_SEED)
 
     print("Finished reading dataset")
-    return X_train, X_test, y_train, y_test, embedding_matrix
+    return X_train, X_val, X_test, y_train, y_val, y_test, embedding_matrix
 
 
 def read_perez_dataset(dataset_name):
@@ -142,11 +143,11 @@ def read_perez_dataset(dataset_name):
     df['news_all_clean'] = df['news_all'].apply(lambda a: cleanArticle(a))
     df['news_embed_idx'] = df['news_all_clean'].apply(lambda a: article_to_word_id_list(a, model))
     
-    X_train, X_test, y_train, y_test = train_test_split(df['news_embed_idx'], df['is_fake'], 
-                                                        test_size=.2, random_state=RANDOM_SEED)
+    X_train, X_test, y_train, y_test = train_test_split(df['news_embed_idx'], df['is_fake'], test_size=.2, random_state=RANDOM_SEED)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.25, random_state=RANDOM_SEED)
     
     print("Finished reading dataset")
-    return X_train, X_test, y_train, y_test, embedding_matrix
+    return X_train, X_val, X_test, y_train, y_val, y_test, embedding_matrix
 
 
 def set_model_hyperparameters(hyperparameter_dict):
@@ -161,16 +162,12 @@ def do_run(hyperparameter_dict):
 
     np.random.seed(RANDOM_SEED)
 
-    ############# (1) Choose dataset to run model on ###########################
-
-    #X_train, X_test, y_train, y_test, embedding_matrix = read_perez_dataset('fakeNewsDataset')
-    X_train, X_test, y_train, y_test, embedding_matrix = read_perez_dataset(DATASET)
-    # X_train, X_test, y_train, y_test, embedding_matrix = read_mcintire_dataset()
+    X_train, X_val, X_test, y_train, y_val, y_test, embedding_matrix = read_perez_dataset(DATASET)
+    # X_train, X_val, X_test, y_train, y_val, y_test, embedding_matrix = read_mcintire_dataset()
     
-    ################################# END ########################################
-
     # Add padding if needed
     X_train = sequence.pad_sequences(X_train, maxlen=MAX_ARTICLE_LENGTH)
+    X_val = sequence.pad_sequences(X_val, maxlen=MAX_ARTICLE_LENGTH)
     X_test = sequence.pad_sequences(X_test, maxlen=MAX_ARTICLE_LENGTH)
 
     # Define model
@@ -199,13 +196,19 @@ def do_run(hyperparameter_dict):
     print(model.summary())
     
     # Train model
-    model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=NN_EPOCHS, batch_size=NN_BATCH_SIZE)
+    model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=NN_EPOCHS, batch_size=NN_BATCH_SIZE)
     
-    # Predict model
-    scores = model.evaluate(X_test, y_test, verbose=1)
+    # Predict model on validation (Dev) set 
+    scores = model.evaluate(X_val, y_val, verbose=1)
     accuracy = scores[1] * 100
     log_metric('accuracy', accuracy)
     print("Accuracy: %.2f%%" % accuracy)
+    
+    # Predict model on test set 
+    scores = model.evaluate(X_test, y_test, verbose=1)
+    accuracy = scores[1] * 100
+    log_metric('accuracy', accuracy)
+    print("Accuracy on Test Set: %.2f%%" % accuracy)
     
     # Confusion matrix of results (ensure it doesn't predict the same class for all records)
     y_pred = model.predict(X_test)
