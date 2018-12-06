@@ -1,0 +1,1632 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## I. Import Libraries and Data"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 167,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import re\n",
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "import os\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.metrics import confusion_matrix\n",
+    "from tpot import TPOTClassifier\n",
+    "from sklearn.feature_extraction.text import CountVectorizer\n",
+    "from scipy.sparse import coo_matrix, hstack\n",
+    "from scipy.sparse import csr_matrix, hstack\n",
+    "\n",
+    "from sklearn.metrics import classification_report\n",
+    "from sklearn import metrics\n",
+    "from sklearn.feature_extraction.text import TfidfVectorizer\n",
+    "import matplotlib.pyplot as plt\n",
+    "import seaborn as sns\n",
+    "import re\n",
+    "from collections import Counter"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## II. Define Functions"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## A. Cleaning and Read Functions"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 168,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def cleanArticle(string):\n",
+    "    strip_special_chars = re.compile(\"[^A-Za-z0-9' ]+\")\n",
+    "    string = string.lower().replace(\"<br />\", \" \")\n",
+    "    return re.sub(strip_special_chars, \"\", string.lower())\n",
+    "\n",
+    "def read_perez_dataset(dataset_name):\n",
+    "    \n",
+    "    def remove_numbers(in_str):\n",
+    "        return re.sub(r'[0-9]+', '', in_str)\n",
+    "    \n",
+    "    print(\"Reading dataset\")\n",
+    "    result_data_list = []\n",
+    "    data_dir = PEREZ_DATASET_PATH\n",
+    "    for news_type in ['fake', 'legit']:\n",
+    "        folder = '%s/%s/%s' % (data_dir, dataset_name, news_type)\n",
+    "        for fname in os.listdir(folder):\n",
+    "            result_data = {}\n",
+    "            result_data['dataset_name'] = dataset_name\n",
+    "            result_data['news_type'] = news_type\n",
+    "            if news_type == 'fake':\n",
+    "                result_data['is_fake'] = 1\n",
+    "            else:\n",
+    "                result_data['is_fake'] = 0\n",
+    "            if dataset_name == 'fakeNewsDataset':\n",
+    "                result_data['news_category'] = remove_numbers(fname.split('.')[0])\n",
+    "            result_data['file_name'] = fname\n",
+    "            filepath = os.path.join(folder, fname)\n",
+    "            with open(filepath, 'r', encoding=\"utf8\") as f:\n",
+    "                file_data = f.read().split('\\n')\n",
+    "                # Some articles don't have a headline, but only article body.\n",
+    "                if len(file_data) > 1:\n",
+    "                    news_content_data = ' '.join(file_data[2:])\n",
+    "                    result_data['news_headline'] = file_data[0]\n",
+    "                else:\n",
+    "                    news_content_data = file_data[0]\n",
+    "                    result_data['news_headline'] = ''\n",
+    "                result_data['news_content'] = news_content_data\n",
+    "                result_data['news_all'] = ' '.join(file_data[0:])\n",
+    "                result_data_list.append(result_data)\n",
+    "                \n",
+    "    df = pd.DataFrame(result_data_list)\n",
+    "    \n",
+    "    df['news_all_clean'] = df['news_all'].apply(lambda a: cleanArticle(a))\n",
+    "    \n",
+    "    X_train, X_test, y_train, y_test = train_test_split(df.drop(['is_fake',\n",
+    "                                                               'news_type','file_name'],\n",
+    "                                                               axis = 1), \n",
+    "                                                        df['is_fake'], \n",
+    "                                                        test_size=.2, random_state=RANDOM_SEED)\n",
+    "    \n",
+    "    print(\"Finished reading dataset\")\n",
+    "    return df, X_train, y_train, X_test, y_test\n",
+    "\n",
+    "def model_report(title, y_test, predictions, predictions_proba):\n",
+    "\n",
+    "    \"\"\"\n",
+    "    Output: Classification report, confusion matrix, and ROC curve\n",
+    "    \"\"\"\n",
+    "    print(title)\n",
+    "    print(\"---------\")\n",
+    "    print(classification_report(y_test, predictions))\n",
+    "\n",
+    "    cm = metrics.confusion_matrix(y_test, predictions)\n",
+    "    plt.figure(figsize=(3,3))\n",
+    "    sns.heatmap(cm, annot=True, fmt=\".0f\", linewidths=.5, square = True, cmap = 'Blues_r');\n",
+    "    plt.ylabel('Actual label');\n",
+    "    plt.xlabel('Predicted label');\n",
+    "    all_sample_title = 'Accuracy: {0}'.format(round(metrics.accuracy_score(y_test, predictions),2))\n",
+    "    plt.title(all_sample_title, size = 15)\n",
+    "    plt.show()\n",
+    "    \n",
+    "    fpr, tpr, threshold = metrics.roc_curve(y_test, predictions_proba)\n",
+    "    roc_auc = metrics.auc(fpr, tpr)\n",
+    "\n",
+    "    plt.title('Receiver Operating Characteristic')\n",
+    "    plt.plot(fpr, tpr, 'b', label = 'AUC = %0.2f' % roc_auc)\n",
+    "    plt.legend(loc = 'lower right')\n",
+    "    plt.plot([0, 1], [0, 1],'r--')\n",
+    "    plt.xlim([0, 1])\n",
+    "    plt.ylim([0, 1])\n",
+    "    plt.ylabel('True Positive Rate')\n",
+    "    plt.xlabel('False Positive Rate')\n",
+    "    plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## B. Linguistic-based feature creators"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1. Ngram & Punctuation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 169,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def pad_punct(s):\n",
+    "    \"\"\"\n",
+    "    Add padding around specified punctuation.\n",
+    "    \"\"\"\n",
+    "    s = re.sub('([.,!?():])', r' \\1 ', s)\n",
+    "    s = re.sub('\\s{2,}', ' ', s)\n",
+    "    return s\n",
+    "def tfidf_vectorizer_custom(train, test, ngram_range):\n",
+    "    \"\"\"\n",
+    "    Create a tfidf vectorized set for train and test data that counts punctuation.\n",
+    "    Ngram range = (1,3)\n",
+    "    \"\"\"\n",
+    "    train = train.apply(pad_punct)\n",
+    "    test = test.apply(pad_punct)\n",
+    "    vect = TfidfVectorizer(token_pattern=r\"(?u)\\b\\w\\w+\\b|!|\\.|,|\\)|\\(|\\:|\\?|\\\"|\\'\", #pattern keep punctuation in vectorizer\n",
+    "                          ngram_range = ngram_range).fit(train)\n",
+    "    vocab = vect.vocabulary_.keys()\n",
+    "    vocab = sorted(vocab, key=len)\n",
+    "    print(\"Traing data info:\")\n",
+    "    print('- Vocabulary len:', len(vect.get_feature_names()))\n",
+    "    print('- Longest phrase:', max(vect.vocabulary_, key=len))\n",
+    "    print('- Smallest 10 phrases:', vocab[0:10])\n",
+    "    print('- Sample of features:',np.array(vect.get_feature_names()))\n",
+    "    train_vectorized = vect.transform(train)\n",
+    "    test_vectorized = vect.transform(test)\n",
+    "    return train_vectorized, test_vectorized"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 2. Psycholinguistic features"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 170,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def LIWC_counter(df, df_LIWC):\n",
+    "    \"\"\"\n",
+    "    Inputs: - Data set with field: news_all_clean\n",
+    "            - Preprocessed LIWC lookup table\n",
+    "    Ouput:  - Data set with 73 additional fields for LIWC count results (normalized over string word count)\n",
+    "    \"\"\"\n",
+    "    LIWC_vars = train_LIWC.drop('Word', axis = 1).columns.values\n",
+    "    for i in LIWC_vars:\n",
+    "        df[i] = 0\n",
+    "        words = df_LIWC[df_LIWC[i] == 1]['Word']\n",
+    "        for a in words:\n",
+    "            df[i] = (df[i] + \n",
+    "                df.news_all_clean.str.count(str(\" \" + a + \" \"))  + #free floating word\n",
+    "                df.news_all_clean.str.count(str(\"^\" + a + \" \")) +  #start word\n",
+    "                df.news_all_clean.str.count(str(\" \" + a + \"$\")))   #end word\n",
+    "        df[i] = df[i] / df.news_all_clean.str.count(\" \") #normalize over word count\n",
+    "    return df"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3. Readability"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 4. Syntax"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## III. Read in Data, Define Test/Train Set"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 171,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Reading dataset\n",
+      "Finished reading dataset\n"
+     ]
+    },
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>dataset_name</th>\n",
+       "      <th>news_all</th>\n",
+       "      <th>news_category</th>\n",
+       "      <th>news_content</th>\n",
+       "      <th>news_headline</th>\n",
+       "      <th>news_all_clean</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>132</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Real Madrid is willing to pay £100m for Eden H...</td>\n",
+       "      <td>sports</td>\n",
+       "      <td>says Ramon Calderon \"Real Madrid are not in a ...</td>\n",
+       "      <td>Real Madrid is willing to pay £100m for Eden H...</td>\n",
+       "      <td>real madrid is willing to pay 100m for eden ha...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>228</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Women arrested  three times is Melania Trump  ...</td>\n",
+       "      <td>polit</td>\n",
+       "      <td>(CNN) A lady resembling Presidents Trump's wif...</td>\n",
+       "      <td>Women arrested  three times is Melania Trump</td>\n",
+       "      <td>women arrested  three times is melania trump  ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>473</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Alec Baldwin says he nearly passed on playing...</td>\n",
+       "      <td>entmt</td>\n",
+       "      <td>Alec Baldwin has revealed that he almost passe...</td>\n",
+       "      <td>Alec Baldwin says he nearly passed on playing...</td>\n",
+       "      <td>alec baldwin says he nearly passed on playing...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>42</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Will Smith reunites with Fresh Prince Pals to ...</td>\n",
+       "      <td>entmt</td>\n",
+       "      <td>Will Smith is back together with the cast of T...</td>\n",
+       "      <td>Will Smith reunites with Fresh Prince Pals to ...</td>\n",
+       "      <td>will smith reunites with fresh prince pals to ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>360</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Instagram adds two-factor authentication, secu...</td>\n",
+       "      <td>tech</td>\n",
+       "      <td>Instagram just made your account harder to hac...</td>\n",
+       "      <td>Instagram adds two-factor authentication, secu...</td>\n",
+       "      <td>instagram adds twofactor authentication securi...</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "        dataset_name                                           news_all  \\\n",
+       "132  fakeNewsDataset  Real Madrid is willing to pay £100m for Eden H...   \n",
+       "228  fakeNewsDataset  Women arrested  three times is Melania Trump  ...   \n",
+       "473  fakeNewsDataset   Alec Baldwin says he nearly passed on playing...   \n",
+       "42   fakeNewsDataset  Will Smith reunites with Fresh Prince Pals to ...   \n",
+       "360  fakeNewsDataset  Instagram adds two-factor authentication, secu...   \n",
+       "\n",
+       "    news_category                                       news_content  \\\n",
+       "132        sports  says Ramon Calderon \"Real Madrid are not in a ...   \n",
+       "228         polit  (CNN) A lady resembling Presidents Trump's wif...   \n",
+       "473         entmt  Alec Baldwin has revealed that he almost passe...   \n",
+       "42          entmt  Will Smith is back together with the cast of T...   \n",
+       "360          tech  Instagram just made your account harder to hac...   \n",
+       "\n",
+       "                                         news_headline  \\\n",
+       "132  Real Madrid is willing to pay £100m for Eden H...   \n",
+       "228      Women arrested  three times is Melania Trump    \n",
+       "473   Alec Baldwin says he nearly passed on playing...   \n",
+       "42   Will Smith reunites with Fresh Prince Pals to ...   \n",
+       "360  Instagram adds two-factor authentication, secu...   \n",
+       "\n",
+       "                                        news_all_clean  \n",
+       "132  real madrid is willing to pay 100m for eden ha...  \n",
+       "228  women arrested  three times is melania trump  ...  \n",
+       "473   alec baldwin says he nearly passed on playing...  \n",
+       "42   will smith reunites with fresh prince pals to ...  \n",
+       "360  instagram adds twofactor authentication securi...  "
+      ]
+     },
+     "execution_count": 171,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "RANDOM_SEED = 42\n",
+    "PEREZ_DATASET_PATH = \"../data/fakeNewsDatasets_Perez-Rosas2018\"\n",
+    "np.random.seed(RANDOM_SEED)\n",
+    "perez_full, train_data, train_labels, test_data, test_labels = read_perez_dataset('fakeNewsDataset')\n",
+    "train_data.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## IV. Run Train/Test Set through LIWC Rented License\n",
+    "\n",
+    "We rented the LIWC dataset (for 30 days), as seen here: https://store5.esellerate.net/store/checkout/CustomLayout.aspx?s=STR6622550055&pc=&page=OnePageMoreInfo.htm&SkuRefNum=SKU48070077205\n",
+    "\n",
+    "We downloaded the software, outputted the train/test set, ran the train/test set through the LIWC software, and uploaded the LIWC results.\n",
+    "The software marks words to 73 LIWC categories in a binary format (with an 'X')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 172,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "train_data['news_all'].to_csv(\"train_data_news_all_forLIWC.txt\")\n",
+    "test_data['news_all'].to_csv(\"test_data_news_all_forLIWC.txt\")\n",
+    "train_LIWC = pd.read_csv(\n",
+    "    \"LIWC2015 Results (train_data_news_all_clean_forLIWC).csv\").fillna(0).drop('Unnamed: 74', axis = 1).replace('X',1)\n",
+    "test_LIWC = pd.read_csv(\n",
+    "    \"LIWC2015 Results (test_data_news_all_clean_forLIWC).csv\").fillna(0).drop('Unnamed: 74', axis = 1).replace('X',1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 173,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>Word</th>\n",
+       "      <th>function</th>\n",
+       "      <th>pronoun</th>\n",
+       "      <th>ppron</th>\n",
+       "      <th>i</th>\n",
+       "      <th>we</th>\n",
+       "      <th>you</th>\n",
+       "      <th>shehe</th>\n",
+       "      <th>they</th>\n",
+       "      <th>ipron</th>\n",
+       "      <th>...</th>\n",
+       "      <th>home</th>\n",
+       "      <th>money</th>\n",
+       "      <th>relig</th>\n",
+       "      <th>death</th>\n",
+       "      <th>informal</th>\n",
+       "      <th>swear</th>\n",
+       "      <th>netspeak</th>\n",
+       "      <th>assent</th>\n",
+       "      <th>nonflu</th>\n",
+       "      <th>filler</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>he</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>he'd</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>he's</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>her</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>herself</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>5 rows × 74 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "      Word  function  pronoun  ppron  i  we  you  shehe  they  ipron   ...    \\\n",
+       "0       he         1        1      1  0   0    0      1     0      0   ...     \n",
+       "1     he'd         1        1      1  0   0    0      1     0      0   ...     \n",
+       "2     he's         1        1      1  0   0    0      1     0      0   ...     \n",
+       "3      her         1        1      1  0   0    0      1     0      0   ...     \n",
+       "4  herself         1        1      1  0   0    0      1     0      0   ...     \n",
+       "\n",
+       "   home  money  relig  death  informal  swear  netspeak  assent  nonflu  \\\n",
+       "0     0      0      0      0         0      0         0       0       0   \n",
+       "1     0      0      0      0         0      0         0       0       0   \n",
+       "2     0      0      0      0         0      0         0       0       0   \n",
+       "3     0      0      0      0         0      0         0       0       0   \n",
+       "4     0      0      0      0         0      0         0       0       0   \n",
+       "\n",
+       "   filler  \n",
+       "0       0  \n",
+       "1       0  \n",
+       "2       0  \n",
+       "3       0  \n",
+       "4       0  \n",
+       "\n",
+       "[5 rows x 74 columns]"
+      ]
+     },
+     "execution_count": 173,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "train_LIWC.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 174,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>Word</th>\n",
+       "      <th>function</th>\n",
+       "      <th>pronoun</th>\n",
+       "      <th>ppron</th>\n",
+       "      <th>i</th>\n",
+       "      <th>we</th>\n",
+       "      <th>you</th>\n",
+       "      <th>shehe</th>\n",
+       "      <th>they</th>\n",
+       "      <th>ipron</th>\n",
+       "      <th>...</th>\n",
+       "      <th>home</th>\n",
+       "      <th>money</th>\n",
+       "      <th>relig</th>\n",
+       "      <th>death</th>\n",
+       "      <th>informal</th>\n",
+       "      <th>swear</th>\n",
+       "      <th>netspeak</th>\n",
+       "      <th>assent</th>\n",
+       "      <th>nonflu</th>\n",
+       "      <th>filler</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>73</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>first</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>amazon</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>prime</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>air</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>5 rows × 74 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "     Word  function  pronoun  ppron  i  we  you  shehe  they  ipron   ...    \\\n",
+       "0      73         0        0      0  0   0    0      0     0      0   ...     \n",
+       "1   first         0        0      0  0   0    0      0     0      0   ...     \n",
+       "2  amazon         0        0      0  0   0    0      0     0      0   ...     \n",
+       "3   prime         0        0      0  0   0    0      0     0      0   ...     \n",
+       "4     air         0        0      0  0   0    0      0     0      0   ...     \n",
+       "\n",
+       "   home  money  relig  death  informal  swear  netspeak  assent  nonflu  \\\n",
+       "0     0      0      0      0         0      0         0       0       0   \n",
+       "1     0      0      0      0         0      0         0       0       0   \n",
+       "2     0      0      0      0         0      0         0       0       0   \n",
+       "3     0      0      0      0         0      0         0       0       0   \n",
+       "4     0      0      0      0         0      0         0       0       0   \n",
+       "\n",
+       "   filler  \n",
+       "0     0.0  \n",
+       "1     0.0  \n",
+       "2     0.0  \n",
+       "3     0.0  \n",
+       "4     0.0  \n",
+       "\n",
+       "[5 rows x 74 columns]"
+      ]
+     },
+     "execution_count": 174,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "test_LIWC.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## IV. Quick Look at Data"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 175,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "\"women arrested  three times is melania trump   cnn a lady resembling presidents trump's wife was arrested on multiple occasions when she was discovered without her makeup on the us secret service near the south grounds of the us treasury building was alerted to a women who looked like the presidents wife running away from the house it didn't take long for the washington metropolitan police department spokesman to announce that it was melania again and they escorted her back to her husband without incident\""
+      ]
+     },
+     "execution_count": 175,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "train_data['news_all_clean'].iloc[1]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 176,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "full perez size:  (480, 9)\n",
+      "train size:  (384,)\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(\"full perez size: \", perez_full.shape)\n",
+    "print(\"train size: \",train_labels.shape)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 177,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "image/png": "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\n",
+      "text/plain": [
+       "<matplotlib.figure.Figure at 0x1a16752ef0>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "sns.catplot(x=\"news_category\", kind = \"count\", hue=\"is_fake\", data=perez_full)\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 178,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "news_category  is_fake\n",
+       "biz            0          40\n",
+       "               1          40\n",
+       "edu            0          40\n",
+       "               1          40\n",
+       "entmt          0          40\n",
+       "               1          40\n",
+       "polit          0          40\n",
+       "               1          40\n",
+       "sports         0          40\n",
+       "               1          40\n",
+       "tech           0          40\n",
+       "               1          40\n",
+       "dtype: int64"
+      ]
+     },
+     "execution_count": 178,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "perez_full.groupby(['news_category','is_fake']).size()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## V. Create Feature-Enriched Training/Testing Datasets"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## A. Implement Feature Creating Functions"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1. Ngram & Punctuation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 179,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Traing data info:\n",
+      "- Vocabulary len: 38668\n",
+      "- Longest phrase: httpeditioncnncom20170328footballfootballmessiargentinabanindexhtml argentina\n",
+      "- Smallest 10 phrases: [\"'\", 'is', 'to', 'in', 'be', 'on', 'as', 'of', 'if', 'hq']\n",
+      "- Sample of features: [\"'\" \"' '\" \"' 127115\" ... 'zombie apocalypse' 'zuckerberg' 'zuckerberg is']\n"
+     ]
+    }
+   ],
+   "source": [
+    "train_data_vectorized, test_data_vectorized = tfidf_vectorizer_custom(\n",
+    "    train_data['news_all_clean'], test_data['news_all_clean'], ngram_range = (1,2))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 2. Psycholinguistic features"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 180,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>dataset_name</th>\n",
+       "      <th>news_all</th>\n",
+       "      <th>news_category</th>\n",
+       "      <th>news_content</th>\n",
+       "      <th>news_headline</th>\n",
+       "      <th>news_all_clean</th>\n",
+       "      <th>function</th>\n",
+       "      <th>pronoun</th>\n",
+       "      <th>ppron</th>\n",
+       "      <th>i</th>\n",
+       "      <th>...</th>\n",
+       "      <th>home</th>\n",
+       "      <th>money</th>\n",
+       "      <th>relig</th>\n",
+       "      <th>death</th>\n",
+       "      <th>informal</th>\n",
+       "      <th>swear</th>\n",
+       "      <th>netspeak</th>\n",
+       "      <th>assent</th>\n",
+       "      <th>nonflu</th>\n",
+       "      <th>filler</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>132</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Real Madrid is willing to pay £100m for Eden H...</td>\n",
+       "      <td>sports</td>\n",
+       "      <td>says Ramon Calderon \"Real Madrid are not in a ...</td>\n",
+       "      <td>Real Madrid is willing to pay £100m for Eden H...</td>\n",
+       "      <td>real madrid is willing to pay 100m for eden ha...</td>\n",
+       "      <td>0.462766</td>\n",
+       "      <td>0.042553</td>\n",
+       "      <td>0.021277</td>\n",
+       "      <td>0.005319</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.026596</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>228</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Women arrested  three times is Melania Trump  ...</td>\n",
+       "      <td>polit</td>\n",
+       "      <td>(CNN) A lady resembling Presidents Trump's wif...</td>\n",
+       "      <td>Women arrested  three times is Melania Trump</td>\n",
+       "      <td>women arrested  three times is melania trump  ...</td>\n",
+       "      <td>0.488372</td>\n",
+       "      <td>0.127907</td>\n",
+       "      <td>0.081395</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0.011628</td>\n",
+       "      <td>0.011628</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>473</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Alec Baldwin says he nearly passed on playing...</td>\n",
+       "      <td>entmt</td>\n",
+       "      <td>Alec Baldwin has revealed that he almost passe...</td>\n",
+       "      <td>Alec Baldwin says he nearly passed on playing...</td>\n",
+       "      <td>alec baldwin says he nearly passed on playing...</td>\n",
+       "      <td>0.482143</td>\n",
+       "      <td>0.138393</td>\n",
+       "      <td>0.084821</td>\n",
+       "      <td>0.035714</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.013393</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>42</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Will Smith reunites with Fresh Prince Pals to ...</td>\n",
+       "      <td>entmt</td>\n",
+       "      <td>Will Smith is back together with the cast of T...</td>\n",
+       "      <td>Will Smith reunites with Fresh Prince Pals to ...</td>\n",
+       "      <td>will smith reunites with fresh prince pals to ...</td>\n",
+       "      <td>0.422535</td>\n",
+       "      <td>0.070423</td>\n",
+       "      <td>0.035211</td>\n",
+       "      <td>0.007042</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0.007042</td>\n",
+       "      <td>0.007042</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.007042</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>360</th>\n",
+       "      <td>fakeNewsDataset</td>\n",
+       "      <td>Instagram adds two-factor authentication, secu...</td>\n",
+       "      <td>tech</td>\n",
+       "      <td>Instagram just made your account harder to hac...</td>\n",
+       "      <td>Instagram adds two-factor authentication, secu...</td>\n",
+       "      <td>instagram adds twofactor authentication securi...</td>\n",
+       "      <td>0.306452</td>\n",
+       "      <td>0.064516</td>\n",
+       "      <td>0.048387</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>...</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.016129</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.000000</td>\n",
+       "      <td>0.016129</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.016129</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "      <td>0.0</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>5 rows × 79 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "        dataset_name                                           news_all  \\\n",
+       "132  fakeNewsDataset  Real Madrid is willing to pay £100m for Eden H...   \n",
+       "228  fakeNewsDataset  Women arrested  three times is Melania Trump  ...   \n",
+       "473  fakeNewsDataset   Alec Baldwin says he nearly passed on playing...   \n",
+       "42   fakeNewsDataset  Will Smith reunites with Fresh Prince Pals to ...   \n",
+       "360  fakeNewsDataset  Instagram adds two-factor authentication, secu...   \n",
+       "\n",
+       "    news_category                                       news_content  \\\n",
+       "132        sports  says Ramon Calderon \"Real Madrid are not in a ...   \n",
+       "228         polit  (CNN) A lady resembling Presidents Trump's wif...   \n",
+       "473         entmt  Alec Baldwin has revealed that he almost passe...   \n",
+       "42          entmt  Will Smith is back together with the cast of T...   \n",
+       "360          tech  Instagram just made your account harder to hac...   \n",
+       "\n",
+       "                                         news_headline  \\\n",
+       "132  Real Madrid is willing to pay £100m for Eden H...   \n",
+       "228      Women arrested  three times is Melania Trump    \n",
+       "473   Alec Baldwin says he nearly passed on playing...   \n",
+       "42   Will Smith reunites with Fresh Prince Pals to ...   \n",
+       "360  Instagram adds two-factor authentication, secu...   \n",
+       "\n",
+       "                                        news_all_clean  function   pronoun  \\\n",
+       "132  real madrid is willing to pay 100m for eden ha...  0.462766  0.042553   \n",
+       "228  women arrested  three times is melania trump  ...  0.488372  0.127907   \n",
+       "473   alec baldwin says he nearly passed on playing...  0.482143  0.138393   \n",
+       "42   will smith reunites with fresh prince pals to ...  0.422535  0.070423   \n",
+       "360  instagram adds twofactor authentication securi...  0.306452  0.064516   \n",
+       "\n",
+       "        ppron         i   ...        home     money  relig     death  \\\n",
+       "132  0.021277  0.005319   ...    0.000000  0.026596    0.0  0.000000   \n",
+       "228  0.081395  0.000000   ...    0.011628  0.011628    0.0  0.000000   \n",
+       "473  0.084821  0.035714   ...    0.000000  0.013393    0.0  0.000000   \n",
+       "42   0.035211  0.007042   ...    0.007042  0.007042    0.0  0.007042   \n",
+       "360  0.048387  0.000000   ...    0.000000  0.016129    0.0  0.000000   \n",
+       "\n",
+       "     informal  swear  netspeak  assent  nonflu  filler  \n",
+       "132  0.000000    0.0  0.000000     0.0     0.0     0.0  \n",
+       "228  0.000000    0.0  0.000000     0.0     0.0     0.0  \n",
+       "473  0.000000    0.0  0.000000     0.0     0.0     0.0  \n",
+       "42   0.000000    0.0  0.000000     0.0     0.0     0.0  \n",
+       "360  0.016129    0.0  0.016129     0.0     0.0     0.0  \n",
+       "\n",
+       "[5 rows x 79 columns]"
+      ]
+     },
+     "execution_count": 180,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "train_data_LIWC = LIWC_counter(train_data, train_LIWC)\n",
+    "test_data_LIWC = LIWC_counter(test_data, test_LIWC)\n",
+    "train_data_LIWC.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### B. Unify All Features in Single Dataset"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 181,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def add_feature(sparse, df_to_sparse, df_ignore):\n",
+    "    \"\"\"\n",
+    "    Returns sparse feature matrix with added feature.\n",
+    "    \"\"\"\n",
+    "    return hstack([coo_matrix(df_to_sparse.drop(df_ignore.columns.values, axis = 1)),sparse])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 182,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#1. Combine ngram and LIWC\n",
+    "train_ngram_LIWC = add_feature(train_data_vectorized, train_data_LIWC, train_data)\n",
+    "test_ngram_LIWC = add_feature(test_data_vectorized, test_data_LIWC, test_data)\n",
+    "\n",
+    "#5. Add news category\n",
+    "vectorizer = CountVectorizer()\n",
+    "vectorizer.fit(train_data['news_category'])\n",
+    "train_news_category_vec = vectorizer.transform(train_data['news_category'])\n",
+    "test_news_category_vec  = vectorizer.transform(test_data['news_category'])\n",
+    "train_final = hstack([train_ngram_LIWC,train_news_category_vec])\n",
+    "test_final =  hstack([test_ngram_LIWC,test_news_category_vec])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 183,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "<384x38674 sparse matrix of type '<class 'numpy.float64'>'\n",
+       "\twith 75976 stored elements in COOrdinate format>"
+      ]
+     },
+     "execution_count": 183,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "train_final"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## V. Classification Models with Automated Machine Learning (TPOT)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 1. Run TPOT Optimizer"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 184,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\r",
+      "Optimization Progress:   0%|          | 0/120 [00:00<?, ?pipeline/s]\r",
+      "Optimization Progress:   1%|          | 1/120 [00:01<02:31,  1.27s/pipeline]\r",
+      "Optimization Progress:   2%|▏         | 2/120 [00:07<05:41,  2.89s/pipeline]\r",
+      "Optimization Progress:   6%|▌         | 7/120 [00:08<03:49,  2.03s/pipeline]\r",
+      "Optimization Progress:   7%|▋         | 8/120 [00:20<03:47,  2.03s/pipeline]\r",
+      "Optimization Progress:   8%|▊         | 9/120 [01:40<28:16, 15.28s/pipeline]\r",
+      "Optimization Progress:   8%|▊         | 10/120 [01:47<23:25, 12.78s/pipeline]\r",
+      "Optimization Progress:   9%|▉         | 11/120 [01:52<19:06, 10.52s/pipeline]\r",
+      "Optimization Progress:  10%|█         | 12/120 [01:55<14:38,  8.13s/pipeline]\r",
+      "Optimization Progress:  12%|█▏        | 14/120 [01:56<10:27,  5.92s/pipeline]\r",
+      "Optimization Progress:  14%|█▍        | 17/120 [01:56<07:07,  4.15s/pipeline]\r",
+      "Optimization Progress:  17%|█▋        | 20/120 [01:57<04:54,  2.94s/pipeline]\r",
+      "Optimization Progress:  18%|█▊        | 21/120 [05:15<1:41:20, 61.42s/pipeline]\r",
+      "Optimization Progress:  19%|█▉        | 23/120 [05:20<1:10:50, 43.82s/pipeline]\r",
+      "Optimization Progress:  21%|██        | 25/120 [10:20<1:59:49, 75.68s/pipeline]\r",
+      "Optimization Progress:  24%|██▍       | 29/120 [10:27<1:21:10, 53.52s/pipeline]\r",
+      "Optimization Progress:  25%|██▌       | 30/120 [10:31<57:47, 38.52s/pipeline]  \r",
+      "Optimization Progress:  28%|██▊       | 34/120 [10:31<38:39, 26.97s/pipeline]\r",
+      "Optimization Progress:  30%|███       | 36/120 [10:31<26:29, 18.92s/pipeline]\r",
+      "Optimization Progress:  31%|███       | 37/120 [10:50<26:10, 18.92s/pipeline]\r",
+      "Optimization Progress:  32%|███▏      | 38/120 [11:52<34:40, 25.37s/pipeline]\r",
+      "Optimization Progress:  32%|███▎      | 39/120 [11:52<24:05, 17.84s/pipeline]\r",
+      "Optimization Progress:  34%|███▍      | 41/120 [11:57<17:23, 13.21s/pipeline]\r",
+      "                                                                             \r",
+      "\r",
+      "Optimization Progress:  34%|███▍      | 41/120 [11:57<17:23, 13.21s/pipeline]"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Generation 1 - Current best internal CV score: 0.6322791243843875\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\r",
+      "Optimization Progress:  35%|███▌      | 42/120 [12:03<14:09, 10.89s/pipeline]\r",
+      "Optimization Progress:  37%|███▋      | 44/120 [12:05<10:08,  8.01s/pipeline]\r",
+      "Optimization Progress:  38%|███▊      | 45/120 [12:06<07:27,  5.96s/pipeline]\r",
+      "Optimization Progress:  40%|████      | 48/120 [12:07<05:02,  4.20s/pipeline]\r",
+      "Optimization Progress:  42%|████▏     | 50/120 [12:07<03:26,  2.96s/pipeline]\r",
+      "Optimization Progress:  42%|████▎     | 51/120 [12:07<02:28,  2.15s/pipeline]\r",
+      "Optimization Progress:  44%|████▍     | 53/120 [12:08<01:47,  1.61s/pipeline]\r",
+      "Optimization Progress:  47%|████▋     | 56/120 [12:08<01:15,  1.18s/pipeline]\r",
+      "Optimization Progress:  48%|████▊     | 57/120 [12:15<02:58,  2.83s/pipeline]\r",
+      "Optimization Progress:  48%|████▊     | 58/120 [12:58<15:30, 15.01s/pipeline]\r",
+      "Optimization Progress:  50%|█████     | 60/120 [13:04<11:20, 11.34s/pipeline]\r",
+      "Optimization Progress:  51%|█████     | 61/120 [13:06<08:30,  8.65s/pipeline]\r",
+      "                                                                             \r",
+      "\r",
+      "Optimization Progress:  51%|█████     | 61/120 [13:06<08:30,  8.65s/pipeline]"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Generation 2 - Current best internal CV score: 0.6400722084932612\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\r",
+      "Optimization Progress:  52%|█████▏    | 62/120 [13:07<05:57,  6.16s/pipeline]\r",
+      "Optimization Progress:  52%|█████▎    | 63/120 [13:08<04:23,  4.63s/pipeline]\r",
+      "Optimization Progress:  53%|█████▎    | 64/120 [13:12<04:16,  4.57s/pipeline]\r",
+      "Optimization Progress:  56%|█████▌    | 67/120 [14:27<09:24, 10.65s/pipeline]\r",
+      "Optimization Progress:  58%|█████▊    | 70/120 [14:27<06:14,  7.49s/pipeline]\r",
+      "Optimization Progress:  59%|█████▉    | 71/120 [14:30<04:53,  6.00s/pipeline]\r",
+      "Optimization Progress:  60%|██████    | 72/120 [14:51<08:26, 10.55s/pipeline]\r",
+      "Optimization Progress:  61%|██████    | 73/120 [14:51<05:58,  7.62s/pipeline]\r",
+      "Optimization Progress:  64%|██████▍   | 77/120 [14:52<03:49,  5.34s/pipeline]\r",
+      "Optimization Progress:  66%|██████▌   | 79/120 [14:56<02:58,  4.35s/pipeline]\r",
+      "                                                                             \r",
+      "\r",
+      "Optimization Progress:  68%|██████▊   | 81/120 [14:56<02:49,  4.35s/pipeline]\r",
+      "Optimization Progress:  68%|██████▊   | 81/120 [14:56<02:00,  3.08s/pipeline]"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Generation 3 - Current best internal CV score: 0.6400722084932612\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\r",
+      "Optimization Progress:  68%|██████▊   | 82/120 [14:58<01:51,  2.93s/pipeline]\r",
+      "Optimization Progress:  69%|██████▉   | 83/120 [15:01<01:41,  2.76s/pipeline]\r",
+      "Optimization Progress:  70%|███████   | 84/120 [15:04<01:48,  3.01s/pipeline]\r",
+      "Optimization Progress:  71%|███████   | 85/120 [15:05<01:16,  2.18s/pipeline]\r",
+      "Optimization Progress:  72%|███████▏  | 86/120 [15:11<01:59,  3.52s/pipeline]\r",
+      "Optimization Progress:  72%|███████▎  | 87/120 [15:14<01:44,  3.17s/pipeline]\r",
+      "Optimization Progress:  74%|███████▍  | 89/120 [15:18<01:30,  2.94s/pipeline]\r",
+      "Optimization Progress:  75%|███████▌  | 90/120 [15:25<01:56,  3.88s/pipeline]\r",
+      "Optimization Progress:  76%|███████▌  | 91/120 [15:31<02:13,  4.59s/pipeline]\r",
+      "Optimization Progress:  78%|███████▊  | 94/120 [15:35<01:34,  3.64s/pipeline]\r",
+      "Optimization Progress:  79%|███████▉  | 95/120 [16:17<06:16, 15.06s/pipeline]\r",
+      "Optimization Progress:  80%|████████  | 96/120 [16:23<05:00, 12.53s/pipeline]\r",
+      "Optimization Progress:  82%|████████▏ | 98/120 [16:31<03:37,  9.88s/pipeline]\r",
+      "Optimization Progress:  82%|████████▎ | 99/120 [16:36<02:56,  8.41s/pipeline]\r",
+      "Optimization Progress:  84%|████████▍ | 101/120 [16:42<02:10,  6.89s/pipeline]\r",
+      "                                                                              \r",
+      "\r",
+      "Optimization Progress:  84%|████████▍ | 101/120 [16:42<02:10,  6.89s/pipeline]"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Generation 4 - Current best internal CV score: 0.6400722084932612\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\r",
+      "Optimization Progress:  85%|████████▌ | 102/120 [16:47<01:51,  6.22s/pipeline]\r",
+      "Optimization Progress:  87%|████████▋ | 104/120 [16:48<01:10,  4.43s/pipeline]\r",
+      "Optimization Progress:  88%|████████▊ | 105/120 [16:50<00:57,  3.82s/pipeline]\r",
+      "Optimization Progress:  88%|████████▊ | 106/120 [16:54<00:53,  3.83s/pipeline]\r",
+      "Optimization Progress:  89%|████████▉ | 107/120 [17:02<01:05,  5.05s/pipeline]\r",
+      "Optimization Progress:  90%|█████████ | 108/120 [17:07<00:59,  4.98s/pipeline]\r",
+      "Optimization Progress:  91%|█████████ | 109/120 [17:09<00:45,  4.18s/pipeline]\r",
+      "Optimization Progress:  92%|█████████▏| 110/120 [17:09<00:29,  3.00s/pipeline]\r",
+      "Optimization Progress:  93%|█████████▎| 112/120 [17:11<00:19,  2.43s/pipeline]\r",
+      "Optimization Progress:  95%|█████████▌| 114/120 [17:17<00:14,  2.48s/pipeline]\r",
+      "Optimization Progress:  98%|█████████▊| 117/120 [17:22<00:06,  2.27s/pipeline]\r",
+      "Optimization Progress:  98%|█████████▊| 118/120 [17:22<00:03,  1.67s/pipeline]\r",
+      "Optimization Progress:  99%|█████████▉| 119/120 [17:24<00:01,  1.89s/pipeline]\r",
+      "Optimization Progress: 121pipeline [17:28,  1.88s/pipeline]                   \r",
+      "                                                           \r",
+      "\r",
+      "Optimization Progress: 121pipeline [17:28,  1.88s/pipeline]\r",
+      "                                                           \r"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Generation 5 - Current best internal CV score: 0.6400722084932612\n",
+      "\n",
+      "Best pipeline: XGBClassifier(SelectPercentile(input_matrix, percentile=21), learning_rate=0.001, max_depth=2, min_child_weight=4, n_estimators=100, nthread=1, subsample=0.25)\n"
+     ]
+    },
+    {
+     "data": {
+      "text/plain": [
+       "TPOTClassifier(config_dict={'tpot.builtins.OneHotEncoder': {'minimum_fraction': [0.05, 0.1, 0.15, 0.2, 0.25]}, 'sklearn.neighbors.KNeighborsClassifier': {'n_neighbors': range(1, 101), 'weights': ['uniform', 'distance'], 'p': [1, 2]}, 'sklearn.ensemble.RandomForestClassifier': {'n_estimators': [100], 'criterion': [...0.65, 0.7 , 0.75, 0.8 , 0.85, 0.9 , 0.95, 1.  ]), 'min_child_weight': range(1, 21), 'nthread': [1]}},\n",
+       "        crossover_rate=0.1, cv=5, disable_update_check=False,\n",
+       "        early_stop=None, generations=5, max_eval_time_mins=5,\n",
+       "        max_time_mins=None, memory=None, mutation_rate=0.9, n_jobs=1,\n",
+       "        offspring_size=20, periodic_checkpoint_folder=None,\n",
+       "        population_size=20, random_state=42, scoring=None, subsample=1.0,\n",
+       "        verbosity=2, warm_start=False)"
+      ]
+     },
+     "execution_count": 184,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pipeline_optimizer = TPOTClassifier(generations=5, population_size=20, cv=5,\n",
+    "                                    random_state=42, verbosity=2,\n",
+    "                                   config_dict = \"TPOT sparse\")\n",
+    "pipeline_optimizer.fit(train_final, train_labels) #This takes a couple hours to run"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 2. Output TPOT Algorithm"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 188,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "True"
+      ]
+     },
+     "execution_count": 188,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pipeline_optimizer.export('tpot_ngram1_LIWC.py')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 3. Implement TPOT Algorithm"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 191,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "accuracy on original test set:  0.6770833333333334\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/anaconda3/lib/python3.6/site-packages/sklearn/preprocessing/label.py:151: DeprecationWarning: The truth value of an empty array is ambiguous. Returning False, but in future this will result in an error. Use `array.size > 0` to check that an array is not empty.\n",
+      "  if diff:\n"
+     ]
+    }
+   ],
+   "source": [
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "from sklearn.feature_selection import SelectPercentile, f_classif\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.pipeline import make_pipeline\n",
+    "from xgboost import XGBClassifier\n",
+    "\n",
+    "exported_pipeline = make_pipeline(\n",
+    "    SelectPercentile(score_func=f_classif, percentile=21),\n",
+    "    XGBClassifier(learning_rate=0.001, max_depth=2, min_child_weight=4, n_estimators=100, nthread=1, subsample=0.25)\n",
+    ")\n",
+    "\n",
+    "\n",
+    "exported_pipeline.fit(train_final, train_labels)\n",
+    "ORIG_results = exported_pipeline.predict(test_final)\n",
+    "ORIG_proba = exported_pipeline.predict_proba(test_final)\n",
+    "print(\"accuracy on original test set: \",np.mean(ORIG_results == test_labels))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### 4. Output TPOT Model Report"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 192,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Original Test Set Report\n",
+      "---------\n",
+      "             precision    recall  f1-score   support\n",
+      "\n",
+      "          0       0.66      0.78      0.71        49\n",
+      "          1       0.71      0.57      0.64        47\n",
+      "\n",
+      "avg / total       0.68      0.68      0.67        96\n",
+      "\n"
+     ]
+    },
+    {
+     "data": {
+      "image/png": "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\nYII=\n",
+      "text/plain": [
+       "<matplotlib.figure.Figure at 0x1a182eb160>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "image/png": "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\n",
+      "text/plain": [
+       "<matplotlib.figure.Figure at 0x1a1e777860>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "model_report(\"Original Test Set Report\", test_labels, ORIG_results, ORIG_proba[:,1])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
