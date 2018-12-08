@@ -1,0 +1,14 @@
+artifact_uri: /Users/deepakna/mids/w266finalproject/models/embeddings/mlruns/0/12b7873e5dcd4df8937978e32c5ed907/artifacts
+end_time: 1542853093727
+entry_point_name: ''
+experiment_id: 0
+lifecycle_stage: active
+name: ''
+run_uuid: 12b7873e5dcd4df8937978e32c5ed907
+source_name: /Users/deepakna/mids/w266finalproject/models/embeddings/rnnlm_keras.py
+source_type: 4
+source_version: ''
+start_time: 1542852853886
+status: 3
+tags: []
+user_id: deepakna
